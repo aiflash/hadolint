@@ -3,7 +3,7 @@
 [![Build Status][github-actions-img]][github-actions]
 [![GPL-3 licensed][license-img]][license]
 [![GitHub release][release-img]][release]
-![Github downloads][downloads-img]
+![GitHub downloads][downloads-img]
 <img align="right" alt="pipecat" width="150"
 src="https://hadolint.github.io/hadolint/img/cat_container.png" />
 
@@ -15,6 +15,28 @@ the Bash code inside `RUN` instructions.
 [:globe_with_meridians: **Check the online version on
 hadolint.github.io/hadolint**](https://hadolint.github.io/hadolint)
 [![Screenshot](screenshot.png)](https://hadolint.github.io/hadolint)
+
+## Table of Contents
+
+- [How to use](#how-to-use)
+- [Install](#install)
+- [CLI](#cli)
+- [Configure](#configure)
+- [Non-Posix Shells](#non-posix-shells)
+- [Ignoring Rules](#ignoring-rules)
+  - [Inline ignores](#inline-ignores)
+  - [Global ignores](#global-ignores)
+- [Linting Labels](#linting-labels)
+  - [Note on dealing with variables in labels](#note-on-dealing-with-variables-in-labels)
+- [Integrations](#integrations)
+- [Rules](#rules)
+- [Develop](#develop)
+  - [Setup](#setup)
+  - [REPL](#repl)
+  - [Tests](#tests)
+  - [AST](#ast)
+  - [Building against custom libraries](#building-against-custom-libraries)
+- [Alternatives](#alternatives)
 
 ## How to use
 
@@ -94,13 +116,15 @@ docker pull ghcr.io/hadolint/hadolint:latest-debian
 docker pull ghcr.io/hadolint/hadolint:latest-alpine
 ```
 
-You can also build `hadolint` locally. You need [Haskell][] and the [stack][]
+You can also build `hadolint` locally. You need [Haskell][] and the [cabal][]
 build tool to build the binary.
 
 ```bash
 git clone https://github.com/hadolint/hadolint \
-&& cd hadolint \
-&& stack install
+  && cd hadolint \
+  && cabal configure \
+  && cabal build \
+  && cabal install
 ```
 
 If you want the
@@ -124,27 +148,34 @@ hadolint --help
 ```text
 hadolint - Dockerfile Linter written in Haskell
 
-Usage: hadolint [-v|--version] [--no-fail] [--no-color] [-c|--config FILENAME]
-                [-V|--verbose] [-f|--format ARG] [DOCKERFILE...]
-                [--error RULECODE] [--warning RULECODE] [--info RULECODE]
-                [--style RULECODE] [--ignore RULECODE]
+Usage: hadolint [-v|--version] [-c|--config FILENAME] [DOCKERFILE...]
+                [--file-path-in-report FILEPATHINREPORT] [--no-fail]
+                [--no-color] [-V|--verbose] [-f|--format ARG] [--error RULECODE]
+                [--warning RULECODE] [--info RULECODE] [--style RULECODE]
+                [--ignore RULECODE]
                 [--trusted-registry REGISTRY (e.g. docker.io)]
                 [--require-label LABELSCHEMA (e.g. maintainer:text)]
-                [--strict-labels] [-t|--failure-threshold THRESHOLD]
+                [--strict-labels] [--disable-ignore-pragma]
+                [-t|--failure-threshold THRESHOLD]
   Lint Dockerfile for errors and best practices
 
 Available options:
   -h,--help                Show this help text
   -v,--version             Show version
+  -c,--config FILENAME     Path to the configuration file
+  --file-path-in-report FILEPATHINREPORT
+                           The file path referenced in the generated report.
+                           This only applies for the 'checkstyle' format and is
+                           useful when running Hadolint with Docker to set the
+                           correct file path.
   --no-fail                Don't exit with a failure status code when any rule
                            is violated
   --no-color               Don't colorize output
-  -c,--config FILENAME     Path to the configuration file
   -V,--verbose             Enables verbose logging of hadolint's output to
                            stderr
   -f,--format ARG          The output format for the results [tty | json |
-                           checkstyle | codeclimate | gitlab_codeclimate |
-                           codacy] (default: tty)
+                           checkstyle | codeclimate | gitlab_codeclimate | gnu |
+                           codacy | sonarqube | sarif] (default: tty)
   --error RULECODE         Make the rule `RULECODE` have the level `error`
   --warning RULECODE       Make the rule `RULECODE` have the level `warning`
   --info RULECODE          Make the rule `RULECODE` have the level `info`
@@ -160,11 +191,13 @@ Available options:
                            format requirement `format`
   --strict-labels          Do not permit labels other than specified in
                            `label-schema`
+  --disable-ignore-pragma  Disable inline ignore pragmas `# hadolint
+                           ignore=DLxxxx`
   -t,--failure-threshold THRESHOLD
                            Exit with failure code only when rules with a
-                           severity above THRESHOLD are violated. Accepted
-                           values: [error | warning | info | style | ignore |
-                           none] (default: info)
+                           severity equal to or above THRESHOLD are violated.
+                           Accepted values: [error | warning | info | style |
+                           ignore | none] (default: info)
 ```
 
 ## Configure
@@ -185,7 +218,7 @@ In windows, the `%LOCALAPPDATA%` environment variable is used instead of
 
 ```yaml
 failure-threshold: string               # name of threshold level (error | warning | info | style | ignore | none)
-format: string                          # Output format (tty | json | checkstyle | codeclimate | gitlab_codeclimate | codacy)
+format: string                          # Output format (tty | json | checkstyle | codeclimate | gitlab_codeclimate | gnu | codacy)
 ignored: [string]                       # list of rules
 label-schema:                           # See Linting Labels below for specific label-schema details
   author: string                        # Your name
@@ -203,6 +236,7 @@ override:
   info: [string]                        # list of rules
   style: [string]                       # list of rules
 strict-labels: boolean                  # true | false
+disable-ignore-pragma: boolean          # true | false
 trustedRegistries: string | [string]    # registry or list of registries
 ```
 
@@ -228,6 +262,7 @@ ignored:
 trustedRegistries:
   - docker.io
   - my-company.com:5000
+  - "*.gcr.io"
 ```
 
 If you want to override the severity of specific rules, you can do that too:
@@ -251,7 +286,8 @@ severity above THRESHOLD are violated (Available in v2.6.0+)
 
 ```yaml
 failure-threshold: info
-warning:
+override:
+  warning:
     - DL3042
     - DL3033
   info:
@@ -277,10 +313,10 @@ docker run --rm -i -v /your/path/to/hadolint.yaml:/.config/hadolint.yaml ghcr.io
 In addition to config files, Hadolint can be configured with environment
 variables.
 ```bash
-NO_COLOR=1                               # Truthy value e.g. 1, true or yes
+NO_COLOR=1                               # Set or unset. See https://no-color.org
 HADOLINT_NOFAIL=1                        # Truthy value e.g. 1, true or yes
 HADOLINT_VERBOSE=1                       # Truthy value e.g. 1, true or yes
-HADOLINT_FORMAT=json                     # Output format (tty | json | checkstyle | codeclimate | gitlab_codeclimate | codacy | sarif )
+HADOLINT_FORMAT=json                     # Output format (tty | json | checkstyle | codeclimate | gitlab_codeclimate | gnu | codacy | sarif )
 HADOLINT_FAILURE_THRESHOLD=info          # threshold level (error | warning | info | style | ignore | none)
 HADOLINT_OVERRIDE_ERROR=DL3010,DL3020    # comma separated list of rule codes
 HADOLINT_OVERRIDE_WARNING=DL3010,DL3020  # comma separated list of rule codes
@@ -288,7 +324,9 @@ HADOLINT_OVERRIDE_INFO=DL3010,DL3020     # comma separated list of rule codes
 HADOLINT_OVERRIDE_STYLE=DL3010,DL3020    # comma separated list of rule codes
 HADOLINT_IGNORE=DL3010,DL3020            # comma separated list of rule codes
 HADOLINT_STRICT_LABELS=1                 # Truthy value e.g. 1, true or yes
-HADOLINT_TRUSTED_REGISTRIES              # comma separated list of registry urls
+HADOLINT_DISABLE_IGNORE_PRAGMA=1         # Truthy value e.g. 1, true or yes
+HADOLINT_TRUSTED_REGISTRIES=docker.io    # comma separated list of registry urls
+HADOLINT_REQUIRE_LABELS=maintainer:text  # comma separated list of label schema items
 ```
 
 ## Non-Posix Shells
@@ -303,7 +341,9 @@ FROM mcr.microsoft.com/windows/servercore:ltsc2022
 RUN Get-Process notepad | Stop-Process
 ```
 
-## Inline ignores
+## Ignoring Rules
+
+### Inline ignores
 
 It is also possible to ignore rules by adding a special comment directly
 above the Dockerfile statement for which you want to make an exception for.
@@ -319,6 +359,19 @@ RUN cd /tmp && echo "hello!"
 ```
 
 The comment "inline ignores" applies only to the statement following it.
+
+### Global ignores
+
+Rules can also be ignored on a per-file basis using the global ignore pragma.
+It works just like inline ignores, except that it applies to the whole file
+instead of just the next line.
+
+```dockerfile
+# hadolint global ignore=DL3003,DL3006,SC1035
+FROM ubuntu
+
+RUN cd /tmp && echo "foo"
+```
 
 ## Linting Labels
 
@@ -417,24 +470,24 @@ Please [create an issue][] if you have an idea for a good rule.
 
 | Rule                                                         | Default Severity | Description                                                                                                                                         |
 | :----------------------------------------------------------- | :--------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [DL1001](https://github.com/hadolint/hadolint/wiki/DL1001)   | Ignore           | Please refrain from using inline ignore pragmas `# hadolint ignore=DLxxxx`.                                                                         |
 | [DL3000](https://github.com/hadolint/hadolint/wiki/DL3000)   | Error            | Use absolute WORKDIR.                                                                                                                               |
 | [DL3001](https://github.com/hadolint/hadolint/wiki/DL3001)   | Info             | For some bash commands it makes no sense running them in a Docker container like ssh, vim, shutdown, service, ps, free, top, kill, mount, ifconfig. |
 | [DL3002](https://github.com/hadolint/hadolint/wiki/DL3002)   | Warning          | Last user should not be root.                                                                                                                       |
 | [DL3003](https://github.com/hadolint/hadolint/wiki/DL3003)   | Warning          | Use WORKDIR to switch to a directory.                                                                                                               |
 | [DL3004](https://github.com/hadolint/hadolint/wiki/DL3004)   | Error            | Do not use sudo as it leads to unpredictable behavior. Use a tool like gosu to enforce root.                                                        |
-| [DL3005](https://github.com/hadolint/hadolint/wiki/DL3005)   | Error            | Do not use apt-get dist-upgrade.                                                                                                                    |
 | [DL3006](https://github.com/hadolint/hadolint/wiki/DL3006)   | Warning          | Always tag the version of an image explicitly.                                                                                                      |
 | [DL3007](https://github.com/hadolint/hadolint/wiki/DL3007)   | Warning          | Using latest is prone to errors if the image will ever update. Pin the version explicitly to a release tag.                                         |
-| [DL3008](https://github.com/hadolint/hadolint/wiki/DL3008)   | Warning          | Pin versions in apt-get install.                                                                                                                    |
+| [DL3008](https://github.com/hadolint/hadolint/wiki/DL3008)   | Warning          | Pin versions in `apt-get install`.                                                                                                                  |
 | [DL3009](https://github.com/hadolint/hadolint/wiki/DL3009)   | Info             | Delete the apt-get lists after installing something.                                                                                                |
 | [DL3010](https://github.com/hadolint/hadolint/wiki/DL3010)   | Info             | Use ADD for extracting archives into an image.                                                                                                      |
 | [DL3011](https://github.com/hadolint/hadolint/wiki/DL3011)   | Error            | Valid UNIX ports range from 0 to 65535.                                                                                                             |
 | [DL3012](https://github.com/hadolint/hadolint/wiki/DL3012)   | Error            | Multiple `HEALTHCHECK` instructions.                                                                                                                |
 | [DL3013](https://github.com/hadolint/hadolint/wiki/DL3013)   | Warning          | Pin versions in pip.                                                                                                                                |
 | [DL3014](https://github.com/hadolint/hadolint/wiki/DL3014)   | Warning          | Use the `-y` switch.                                                                                                                                |
-| [DL3015](https://github.com/hadolint/hadolint/wiki/DL3015)   | Info             | Avoid additional packages by specifying --no-install-recommends.                                                                                    |
+| [DL3015](https://github.com/hadolint/hadolint/wiki/DL3015)   | Info             | Avoid additional packages by specifying `--no-install-recommends`.                                                                                  |
 | [DL3016](https://github.com/hadolint/hadolint/wiki/DL3016)   | Warning          | Pin versions in `npm`.                                                                                                                              |
-| [DL3018](https://github.com/hadolint/hadolint/wiki/DL3018)   | Warning          | Pin versions in apk add. Instead of `apk add <package>` use `apk add <package>=<version>`.                                                          |
+| [DL3018](https://github.com/hadolint/hadolint/wiki/DL3018)   | Warning          | Pin versions in `apk add`. Instead of `apk add <package>` use `apk add <package>=<version>`.                                                        |
 | [DL3019](https://github.com/hadolint/hadolint/wiki/DL3019)   | Info             | Use the `--no-cache` switch to avoid the need to use `--update` and remove `/var/cache/apk/*` when done installing packages.                        |
 | [DL3020](https://github.com/hadolint/hadolint/wiki/DL3020)   | Error            | Use `COPY` instead of `ADD` for files and folders.                                                                                                  |
 | [DL3021](https://github.com/hadolint/hadolint/wiki/DL3021)   | Error            | `COPY` with more than 2 arguments requires the last argument to end with `/`                                                                        |
@@ -442,8 +495,8 @@ Please [create an issue][] if you have an idea for a good rule.
 | [DL3023](https://github.com/hadolint/hadolint/wiki/DL3023)   | Error            | `COPY --from` cannot reference its own `FROM` alias                                                                                                 |
 | [DL3024](https://github.com/hadolint/hadolint/wiki/DL3024)   | Error            | `FROM` aliases (stage names) must be unique                                                                                                         |
 | [DL3025](https://github.com/hadolint/hadolint/wiki/DL3025)   | Warning          | Use arguments JSON notation for CMD and ENTRYPOINT arguments                                                                                        |
-| [DL3026](https://github.com/hadolint/hadolint/wiki/DL3026)   | Error            | Use only an allowed registry in the FROM image                                                                                                      |
-| [DL3027](https://github.com/hadolint/hadolint/wiki/DL3027)   | Warning          | Do not use `apt` as it is meant to be a end-user tool, use `apt-get` or `apt-cache` instead                                                         |
+| [DL3026](https://github.com/hadolint/hadolint/wiki/DL3026)   | Error            | Use only an allowed registry in the `FROM image`                                                                                                    |
+| [DL3027](https://github.com/hadolint/hadolint/wiki/DL3027)   | Warning          | Do not use `apt` as it is meant to be an end-user tool, use `apt-get` or `apt-cache` instead                                                        |
 | [DL3028](https://github.com/hadolint/hadolint/wiki/DL3028)   | Warning          | Pin versions in gem install. Instead of `gem install <gem>` use `gem install <gem>:<version>`                                                       |
 | [DL3029](https://github.com/hadolint/hadolint/wiki/DL3029)   | Warning          | Do not use --platform flag with FROM.                                                                                                               |
 | [DL3030](https://github.com/hadolint/hadolint/wiki/DL3030)   | Warning          | Use the `-y` switch to avoid manual input `yum install -y <package>`                                                                                |
@@ -467,15 +520,16 @@ Please [create an issue][] if you have an idea for a good rule.
 | [DL3050](https://github.com/hadolint/hadolint/wiki/DL3050)   | Info             | Superfluous label(s) present.                                                                                                                       |
 | [DL3051](https://github.com/hadolint/hadolint/wiki/DL3051)   | Warning          | Label `<label>` is empty.                                                                                                                           |
 | [DL3052](https://github.com/hadolint/hadolint/wiki/DL3052)   | Warning          | Label `<label>` is not a valid URL.                                                                                                                 |
-| [DL3053](https://github.com/hadolint/hadolint/wiki/DL3053)   | Warning          | Label `<label>` is not a valid time format - must be conform to RFC3339.                                                                            |
+| [DL3053](https://github.com/hadolint/hadolint/wiki/DL3053)   | Warning          | Label `<label>` is not a valid time format - must conform to RFC3339.                                                                               |
 | [DL3054](https://github.com/hadolint/hadolint/wiki/DL3054)   | Warning          | Label `<label>` is not a valid SPDX license identifier.                                                                                             |
 | [DL3055](https://github.com/hadolint/hadolint/wiki/DL3055)   | Warning          | Label `<label>` is not a valid git hash.                                                                                                            |
 | [DL3056](https://github.com/hadolint/hadolint/wiki/DL3056)   | Warning          | Label `<label>` does not conform to semantic versioning.                                                                                            |
-| [DL3057](https://github.com/hadolint/hadolint/wiki/DL3057)   | IgnoreC          | `HEALTHCHECK` instruction missing.                                                                                                                  |
-| [DL3058](https://github.com/hadolint/hadolint/wiki/DL3058)   | Warning          | Label `<label>` is not a valid email format - must be conform to RFC5322.                                                                           |
+| [DL3057](https://github.com/hadolint/hadolint/wiki/DL3057)   | Ignore           | `HEALTHCHECK` instruction missing.                                                                                                                  |
+| [DL3058](https://github.com/hadolint/hadolint/wiki/DL3058)   | Warning          | Label `<label>` is not a valid email format - must conform to RFC5322.                                                                              |
 | [DL3059](https://github.com/hadolint/hadolint/wiki/DL3059)   | Info             | Multiple consecutive `RUN` instructions. Consider consolidation.                                                                                    |
 | [DL3060](https://github.com/hadolint/hadolint/wiki/DL3060)   | Info             | `yarn cache clean` missing after `yarn install` was run.                                                                                            |
-| [DL4000](https://github.com/hadolint/hadolint/wiki/DL4000)   | Error            | MAINTAINER is deprecated.                                                                                                                           |
+| [DL3061](https://github.com/hadolint/hadolint/wiki/DL3061)   | Error            | Invalid instruction order. Dockerfile must begin with `FROM`, `ARG` or comment.                                                                     |
+| [DL4000](https://github.com/hadolint/hadolint/wiki/DL4000)   | Error            | `MAINTAINER` is deprecated.                                                                                                                         |
 | [DL4001](https://github.com/hadolint/hadolint/wiki/DL4001)   | Warning          | Either use Wget or Curl but not both.                                                                                                               |
 | [DL4003](https://github.com/hadolint/hadolint/wiki/DL4003)   | Warning          | Multiple `CMD` instructions found.                                                                                                                  |
 | [DL4004](https://github.com/hadolint/hadolint/wiki/DL4004)   | Error            | Multiple `ENTRYPOINT` instructions found.                                                                                                           |
@@ -522,6 +576,8 @@ Please [create an issue][] if you have an idea for a good rule.
 If you are an experienced Haskeller, we would be very grateful if you would
 tear our code apart in a review.
 
+To compile, you will need a recent Haskell environment and `cabal-install`.
+
 ### Setup
 
 1.  Clone repository
@@ -530,10 +586,17 @@ tear our code apart in a review.
     git clone --recursive git@github.com:hadolint/hadolint.git
     ```
 
-1.  Install the dependencies
+1.  Install dependencies and compile source
 
     ```bash
-    stack install
+    cabal configure
+    cabal build
+    ```
+
+1.  (Optional) Install Hadolint on your system
+
+    ```bash
+    cabal install
     ```
 
 ### REPL
@@ -542,7 +605,7 @@ The easiest way to try out the parser is using the REPL.
 
 ```bash
 # start the repl
-stack repl
+cabal repl
 # overload strings to be able to use Text
 :set -XOverloadedStrings
 # import parser library
@@ -553,10 +616,12 @@ parseText "FROM debian:jessie"
 
 ### Tests
 
-Run unit tests:
+Compile with unit tests and run them:
 
 ```bash
-stack test
+cabal configure --enable-tests
+cabal build --enable-tests
+cabal test
 ```
 
 Run integration tests:
@@ -570,6 +635,44 @@ Run integration tests:
 Dockerfile syntax is fully described in the [Dockerfile reference][].
 Just take a look at [Syntax.hs][] in the `language-docker` project to see
 the AST definition.
+
+### Building against custom libraries
+
+Hadolint uses many libraries to do the dirty work. In particular,
+language-docker is used to parse Dockerfiles and produce an AST which then can
+be analyzed. To build Hadolint against a custom version of such libraries, do
+the following. This example uses language-docker, but it would work with any
+other library as well.
+
+ 1) In the same directory (e.g. `/home/user/repos`) clone Hadolint and
+    language-docker git repositories
+
+```bash
+cd /home/user/repos
+git clone https://github.com/hadolint/hadolint.git
+git clone https://github.com/hadolint/language-docker.git
+```
+
+ 2) Make your modifications to language-docker
+
+ 3) In the Hadolint repo, edit the `cabal.project` file, such that the
+    `packages` property points to the other repo too
+
+```yaml
+[...]
+packages:
+  .
+  ../language-docker
+[...]
+```
+
+ 4) Recompile Hadolint and run the tests
+```bash
+cd /home/user/repos/hadolint
+cabal configure --enable-tests
+cabal build --enable-tests
+cabal test
+```
 
 ## Alternatives
 
@@ -592,8 +695,8 @@ the AST definition.
 [best practice]: https://docs.docker.com/engine/userguide/eng-image/dockerfile_best-practices
 [shellcheck]: https://github.com/koalaman/shellcheck
 [release page]: https://github.com/hadolint/hadolint/releases/latest
-[haskell]: https://www.haskell.org/platform/
-[stack]: http://docs.haskellstack.org/en/stable/install_and_upgrade.html
+[haskell]: https://www.haskell.org/downloads/
+[cabal]: https://www.haskell.org/cabal/
 [integration]: docs/INTEGRATION.md
 [code review platform integrations]: docs/INTEGRATION.md#code-review
 [continuous integrations]: docs/INTEGRATION.md#continuous-integration
@@ -601,7 +704,7 @@ the AST definition.
 [version control integrations]: docs/INTEGRATION.md#version-control
 [create an issue]: https://github.com/hadolint/hadolint/issues/new
 [dockerfile reference]: http://docs.docker.com/engine/reference/builder/
-[syntax.hs]: https://www.stackage.org/haddock/nightly-2018-01-07/language-docker-2.0.1/Language-Docker-Syntax.html
+[syntax.hs]: https://www.stackage.org/haddock/nightly-2022-11-15/language-docker-12.0.0/Language-Docker-Syntax.html
 [rfc3339]: https://www.ietf.org/rfc/rfc3339.txt
 [semver]: https://semver.org/
 [rfc3986]: https://www.ietf.org/rfc/rfc3986.txt

@@ -9,12 +9,12 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Hadolint.Pragma
+import qualified Hadolint.Rule.DL1001
 import qualified Hadolint.Rule.DL3000
 import qualified Hadolint.Rule.DL3001
 import qualified Hadolint.Rule.DL3002
 import qualified Hadolint.Rule.DL3003
 import qualified Hadolint.Rule.DL3004
-import qualified Hadolint.Rule.DL3005
 import qualified Hadolint.Rule.DL3006
 import qualified Hadolint.Rule.DL3007
 import qualified Hadolint.Rule.DL3008
@@ -67,6 +67,7 @@ import qualified Hadolint.Rule.DL3057
 import qualified Hadolint.Rule.DL3058
 import qualified Hadolint.Rule.DL3059
 import qualified Hadolint.Rule.DL3060
+import qualified Hadolint.Rule.DL3061
 import qualified Hadolint.Rule.DL4000
 import qualified Hadolint.Rule.DL4001
 import qualified Hadolint.Rule.DL4003
@@ -80,6 +81,8 @@ import qualified Hadolint.Shell as Shell
 data AnalisisResult = AnalisisResult
   { -- | The set of ignored rules per line
     ignored :: SMap.IntMap (Set.Set RuleCode),
+    -- | The set of globally ignored rules
+    globalIgnored :: Set.Set RuleCode,
     -- | A set of failures collected for reach rule
     failed :: Failures
   }
@@ -89,10 +92,12 @@ run config dockerfile = Seq.filter shouldKeep failed
   where
     AnalisisResult {..} = Foldl.fold (analyze config) dockerfile
 
-    shouldKeep CheckFailure {line, code} =
-      Just True /= do
-        ignoreList <- SMap.lookup line ignored
-        return $ code `Set.member` ignoreList
+    shouldKeep CheckFailure {line, code}
+      | disableIgnorePragma config = True
+      | code `Set.member` globalIgnored = False
+      | otherwise = Just True /= do
+          ignoreList <- SMap.lookup line ignored
+          return $ code `Set.member` ignoreList
 
 analyze ::
   Configuration ->
@@ -100,31 +105,20 @@ analyze ::
 analyze config =
   AnalisisResult
     <$> Hadolint.Pragma.ignored
-    <*> Foldl.premap parseShell (failures config <> onBuildFailures config)
+    <*> Hadolint.Pragma.globalIgnored
+    <*> Foldl.premap parseShell (failures config)
 
 parseShell :: InstructionPos Text.Text -> InstructionPos Shell.ParsedShell
 parseShell = fmap Shell.parseShell
 
-onBuildFailures :: Configuration -> Rule Shell.ParsedShell
-onBuildFailures config =
-  Foldl.prefilter
-    isOnBuild
-    (Foldl.premap unwrapOnbuild (failures config))
-  where
-    isOnBuild InstructionPos {instruction = OnBuild {}} = True
-    isOnBuild _ = False
-
-    unwrapOnbuild inst@InstructionPos {instruction = OnBuild i} = inst {instruction = i}
-    unwrapOnbuild inst = inst
-
 failures :: Configuration -> Rule Shell.ParsedShell
 failures Configuration {allowedRegistries, labelSchema, strictLabels} =
-  Hadolint.Rule.DL3000.rule
+  Hadolint.Rule.DL1001.rule
+    <> Hadolint.Rule.DL3000.rule
     <> Hadolint.Rule.DL3001.rule
     <> Hadolint.Rule.DL3002.rule
     <> Hadolint.Rule.DL3003.rule
     <> Hadolint.Rule.DL3004.rule
-    <> Hadolint.Rule.DL3005.rule
     <> Hadolint.Rule.DL3006.rule
     <> Hadolint.Rule.DL3007.rule
     <> Hadolint.Rule.DL3008.rule
@@ -177,6 +171,7 @@ failures Configuration {allowedRegistries, labelSchema, strictLabels} =
     <> Hadolint.Rule.DL3058.rule labelSchema
     <> Hadolint.Rule.DL3059.rule
     <> Hadolint.Rule.DL3060.rule
+    <> Hadolint.Rule.DL3061.rule
     <> Hadolint.Rule.DL4000.rule
     <> Hadolint.Rule.DL4001.rule
     <> Hadolint.Rule.DL4003.rule

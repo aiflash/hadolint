@@ -10,16 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Setup Haskell
         id: setup-haskell-cabal
-        uses: haskell/actions/setup@v1
+        uses: haskell/actions/setup@v2
         with:
           ghc-version: "8.10"
       - name: Update ThirdPartyNotices.txt
         run: cabal update && cabal install licensor --constraint 'licensor >= 0.4 && <0.5' && /home/runner/.cabal/bin/licensor --silent > ThirdPartyNotices.txt
       - name: Commit ThirdPartyNotices.txt
-        uses: EndBug/add-and-commit@v7
+        uses: EndBug/add-and-commit@v9
         with:
           add: "ThirdPartyNotices.txt"
           message: "Update ThirdPartyNotices.txt"

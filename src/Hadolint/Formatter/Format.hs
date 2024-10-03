@@ -16,7 +16,7 @@ where
 import Data.Default
 import Data.Sequence (Seq)
 import Data.Text (Text)
-import Data.Text.Prettyprint.Doc (Pretty, pretty)
+import Prettyprinter (Pretty, pretty)
 import Data.YAML
 import Text.Megaparsec (TraversableStream (..), pstateSourcePos)
 import Text.Megaparsec.Error
@@ -32,7 +32,8 @@ data OutputFormat
   | SonarQube
   | TTY
   | CodeclimateJson
-  | GitlabCodeclimateJson
+  | GitLabCodeclimateJson
+  | Gnu
   | Checkstyle
   | Codacy
   | Sarif
@@ -43,7 +44,8 @@ instance Pretty OutputFormat where
   pretty SonarQube = "sonarqube"
   pretty TTY = "tty"
   pretty CodeclimateJson = "codeclimate"
-  pretty GitlabCodeclimateJson = "gitlab_codeclimate"
+  pretty GitLabCodeclimateJson = "gitlab_codeclimate"
+  pretty Gnu = "gnu"
   pretty Checkstyle = "checkstyle"
   pretty Codacy = "codacy"
   pretty Sarif = "sarif"
@@ -75,7 +77,8 @@ readMaybeOutputFormat "json" = Just Json
 readMaybeOutputFormat "sonarqube" = Just SonarQube
 readMaybeOutputFormat "tty" = Just TTY
 readMaybeOutputFormat "codeclimate" = Just CodeclimateJson
-readMaybeOutputFormat "gitlab_codeclimate" = Just GitlabCodeclimateJson
+readMaybeOutputFormat "gitlab_codeclimate" = Just GitLabCodeclimateJson
+readMaybeOutputFormat "gnu" = Just Gnu
 readMaybeOutputFormat "checkstyle" = Just Checkstyle
 readMaybeOutputFormat "codacy" = Just Codacy
 readMaybeOutputFormat "sarif" = Just Sarif

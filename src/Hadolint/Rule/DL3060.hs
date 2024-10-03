@@ -5,7 +5,7 @@ import qualified Data.Text as Text
 import Hadolint.Rule
 import qualified Hadolint.Shell as Shell
 import Language.Docker.Syntax
-
+import Data.Set
 
 data Acc
   = Acc
@@ -16,8 +16,28 @@ data Acc
   | Empty
   deriving (Show)
 
+-- check if a RunMount is a CacheMount
+isCacheMount :: RunMount -> Bool
+isCacheMount (CacheMount _) = True
+isCacheMount _ = False
+
+-- Set of RunMounts must contain at least one CacheMount
+
+containsOneCacheMount :: Set RunMount -> Bool
+containsOneCacheMount = Data.Set.foldl foldable False
+  where 
+    foldable a b = a || isCacheMount b
+
+-- do not flag this as a problem if using a cacheMount
+cacheMount :: RunFlags -> Bool
+cacheMount RunFlags {mount} = containsOneCacheMount mount
+
 rule :: Rule Shell.ParsedShell
-rule = veryCustomRule check (emptyState Empty) markFailures
+rule = dl3060 <> onbuild dl3060
+{-# INLINEABLE rule #-}
+
+dl3060 :: Rule Shell.ParsedShell
+dl3060 = veryCustomRule check (emptyState Empty) markFailures
   where
     code = "DL3060"
     severity = DLInfoC
@@ -25,9 +45,10 @@ rule = veryCustomRule check (emptyState Empty) markFailures
 
     check line st (From from) =
       st |> modify (rememberStage line from)
-    check line st (Run (RunArgs args _))
+    check line st (Run (RunArgs args flags))
       | foldArguments (Shell.anyCommands yarnInstall) args
-          && foldArguments (Shell.noCommands yarnCacheClean) args =
+          && foldArguments (Shell.noCommands yarnCacheClean) args
+          && not (cacheMount flags) =
         st |> modify (rememberLine line)
       | otherwise = st
     check _ st _ = st
@@ -42,7 +63,7 @@ rule = veryCustomRule check (emptyState Empty) markFailures
           | BaseImage {alias = Just (ImageAlias als)} <- from,
             Just _ <- Map.lookup als active = pure CheckFailure {..}
           | otherwise = mempty
-{-# INLINEABLE rule #-}
+{-# INLINEABLE dl3060 #-}
 
 rememberStage :: Linenumber -> BaseImage -> Acc -> Acc
 rememberStage line stage@BaseImage {image = Image _ als} Empty =
@@ -61,7 +82,7 @@ yarnCacheClean :: Shell.Command -> Bool
 yarnCacheClean = Shell.cmdHasArgs "yarn" ["cache", "clean"]
 
 -- | This is needed as placeholder when no FROM statement has yet been
--- envountered.
+-- encountered.
 scratch :: BaseImage
 scratch =
   ( BaseImage

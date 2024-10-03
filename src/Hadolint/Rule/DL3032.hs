@@ -4,8 +4,13 @@ import Hadolint.Rule
 import qualified Hadolint.Shell as Shell
 import Language.Docker.Syntax
 
+
 rule :: Rule Shell.ParsedShell
-rule = simpleRule code severity message check
+rule = dl3032 <> onbuild dl3032
+{-# INLINEABLE rule #-}
+
+dl3032 :: Rule Shell.ParsedShell
+dl3032 = simpleRule code severity message check
   where
     code = "DL3032"
     severity = DLWarningC
@@ -19,5 +24,6 @@ rule = simpleRule code severity message check
     check _ = True
 
     yumInstall = Shell.cmdHasArgs "yum" ["install"]
-    yumClean = Shell.cmdHasArgs "yum" ["clean", "all"]
-{-# INLINEABLE rule #-}
+    yumClean args = Shell.cmdHasArgs "yum" ["clean", "all"] args
+      || Shell.cmdHasArgs "rm" ["-rf", "/var/cache/yum/*"] args
+{-# INLINEABLE dl3032 #-}

@@ -4,18 +4,12 @@ module Hadolint.Meta
   )
 where
 
-import qualified Development.GitRev
+import Data.Version (showVersion)
+import Paths_hadolint (version)
 
 
 getVersion :: String
 getVersion = "Haskell Dockerfile Linter " ++ getShortVersion
 
 getShortVersion :: String
-getShortVersion = v ++ d
-  where
-    version = $(Development.GitRev.gitDescribe)
-    dirty = $(Development.GitRev.gitDirty)
-    v = case version of
-      "UNKONWN" -> "-no-git"
-      _ -> version
-    d = if dirty then "-dirty" else ""
+getShortVersion = showVersion version

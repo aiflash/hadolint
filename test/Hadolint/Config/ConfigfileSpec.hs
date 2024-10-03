@@ -46,13 +46,13 @@ spec =
           conf = parseYaml yaml
       conf `shouldBe` Right mempty { partialVerbose = Just False }
 
-    it "parse `output-format: json`" $ do
-      let yaml = ["output-format: json"]
+    it "parse `format: json`" $ do
+      let yaml = ["format: json"]
           conf = parseYaml yaml
       conf `shouldBe` Right mempty { partialFormat = Just Json }
 
-    it "parse `output-format: sarif`" $ do
-      let yaml = ["output-format: sarif"]
+    it "parse `format: sarif`" $ do
+      let yaml = ["format: sarif"]
           conf = parseYaml yaml
       conf `shouldBe` Right mempty { partialFormat = Just Sarif }
 
@@ -117,7 +117,7 @@ spec =
                           { partialIgnoreRules = ["DL3020", "DL3040", "SC1020"] }
 
     it "parse trusted registries" $ do
-      let yaml = [ "trusted-registries:",
+      let yaml = [ "trustedRegistries:",
                    "  - foobar.com",
                    "  - barfoo.com"
                  ]
@@ -149,6 +149,16 @@ spec =
       let yaml = [ "strict-labels: false" ]
           conf = parseYaml yaml
       conf `shouldBe` Right mempty { partialStrictLabels = Just False }
+
+    it "parse disable-ignore-pragma: true" $ do
+      let yaml = [ "disable-ignore-pragma: true" ]
+          conf = parseYaml yaml
+      conf `shouldBe` Right mempty { partialDisableIgnorePragma = Just True }
+
+    it "parse disable-ignore-pragma: false" $ do
+      let yaml = [ "disable-ignore-pragma: false" ]
+          conf = parseYaml yaml
+      conf `shouldBe` Right mempty { partialDisableIgnorePragma = Just False }
 
     it "parse `failure-threshold: warning`" $ do
       let yaml = ["failure-threshold: warning"]
